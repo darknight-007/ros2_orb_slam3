@@ -80,7 +80,7 @@ class MonoDriver(Node):
         self.sub_exp_ack_name = "/mono_py_driver/exp_settings_ack"
         self.pub_img_to_agent_name = "/mono_py_driver/img_msg"
         self.pub_timestep_to_agent_name = "/mono_py_driver/timestep_msg"
-        self.zed_image_topic = "/zed2/zed_node/left/image_rect_color"
+        self.zed_image_topic = "/zed/zed_node/left/image_rect_color"
         self.send_config = True
         
         # Setup ROS2 publishers and subscribers
