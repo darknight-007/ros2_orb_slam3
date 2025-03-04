@@ -16,6 +16,7 @@
   <build_depend>sensor_msgs</build_depend>
   <build_depend>cv_bridge</build_depend>
   <build_depend>image_transport</build_depend>
+  <build_depend>message_filters</build_depend>
   <build_depend>Pangolin</build_depend>
   <build_depend>boost_system</build_depend>
   <build_depend>boost_serialization</build_depend>
@@ -31,6 +32,7 @@
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>cv_bridge</exec_depend>
   <exec_depend>image_transport</exec_depend>
+  <exec_depend>message_filters</exec_depend>
   <exec_depend>Pangolin</exec_depend>
   <exec_depend>boost_system</exec_depend>
   <exec_depend>boost_serialization</exec_depend>

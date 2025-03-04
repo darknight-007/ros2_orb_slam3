@@ -105,4 +105,60 @@ class MonocularMode : public rclcpp::Node
 
 };
 
+//* Stereo node specific definitions
+class StereoMode : public rclcpp::Node
+{   
+    public:
+    std::string experimentConfig = ""; // String to receive settings sent by the python driver
+    double timeStep; // Timestep data received from the python node
+    std::string receivedConfig = "";
+
+    //* Class constructor
+    StereoMode(); // Constructor 
+
+    ~StereoMode(); // Destructor
+        
+    private:
+        // Class internal variables
+        std::string homeDir = "";
+        std::string packagePath = "ros2_ws/src/ros2_orb_slam3/"; //! Change to match path to your workspace
+        std::string OPENCV_WINDOW = ""; // Set during initialization
+        std::string nodeName = ""; // Name of this node
+        std::string vocFilePath = ""; // Path to ORB vocabulary provided by DBoW2 package
+        std::string settingsFilePath = ""; // Path to settings file provided by ORB_SLAM3 package
+        bool bSettingsFromPython = false; // Flag set once when experiment setting from python node is received
+        
+        // Image synchronization variables
+        cv::Mat mLeftImgBuf;
+        cv::Mat mRightImgBuf;
+        bool mLeftImgReady = false;
+        bool mRightImgReady = false;
+        std::mutex mImageMutex;
+
+        std::string subexperimentconfigName = ""; // Subscription topic name
+        std::string pubconfigackName = ""; // Publisher topic name
+        std::string subLeftImgMsgName = ""; // Topic to subscribe to receive left RGB images
+        std::string subRightImgMsgName = ""; // Topic to subscribe to receive right RGB images
+        std::string subTimestepMsgName = ""; // Topic to subscribe to receive the timestep
+
+        //* Definitions of publisher and subscribers
+        rclcpp::Subscription<std_msgs::msg::String>::SharedPtr expConfig_subscription_;
+        rclcpp::Publisher<std_msgs::msg::String>::SharedPtr configAck_publisher_;
+        rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr subLeftImgMsg_subscription_;
+        rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr subRightImgMsg_subscription_;
+        rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr subTimestepMsg_subscription_;
+
+        //* ORB_SLAM3 related variables
+        ORB_SLAM3::System* pAgent; // pointer to a ORB SLAM3 object
+        ORB_SLAM3::System::eSensor sensorType;
+        bool enablePangolinWindow = false; // Shows Pangolin window output
+        bool enableOpenCVWindow = false; // Shows OpenCV window output
+
+        //* ROS callbacks
+        void experimentSetting_callback(const std_msgs::msg::String& msg); // Callback to process settings sent over by Python node
+        void Timestep_callback(const std_msgs::msg::Float64& time_msg); // Callback to process the timestep for this image
+        void LeftImg_callback(const sensor_msgs::msg::Image& msg); // Callback to process left RGB image
+        void RightImg_callback(const sensor_msgs::msg::Image& msg); // Callback to process right RGB image
+};
+
 #endif
