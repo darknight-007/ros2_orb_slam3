@@ -7,7 +7,7 @@
 
 A ROS2 package wrapping [ORB-SLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3) V1.0 as a shared library with native ROS2 integration. Publishes camera poses, point clouds, and keyframe trajectories as standard ROS2 messages for downstream mapping and navigation.
 
-Developed as part of the **SES 598 Space Robotics and AI** course at Arizona State University, alongside the [terrain_mapping_drone_control](../terrain_mapping_drone_control/) package for ORB-SLAM-based adaptive terrain mapping on a simulated PX4 drone.
+Developed as part of the **SES 598 Space Robotics and AI** course at Arizona State University, alongside the [terrain_mapping_drone_control](https://github.com/DREAMS-lab/ses598-space-robotics-and-ai-2026/tree/main/assignments/terrain_mapping_drone_control) package for ORB-SLAM-based adaptive terrain mapping on a simulated PX4 drone.
 
 Forked from [Mechazo11/ros2_orb_slam3](https://github.com/Mechazo11/ros2_orb_slam3) and substantially extended for ROS2 Jazzy / Ubuntu 24.04 (Noble).
 
