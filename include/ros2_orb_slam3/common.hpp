@@ -23,9 +23,16 @@
 // #include "your_custom_msg_interface/msg/custom_msg_field.hpp" // Example of adding in a custom message
 #include <std_msgs/msg/header.hpp>
 #include "std_msgs/msg/float64.hpp"
+#include "std_msgs/msg/int32.hpp"
 #include <std_msgs/msg/string.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include "sensor_msgs/msg/image.hpp"
+#include "sensor_msgs/msg/point_cloud2.hpp"
+#include "sensor_msgs/point_cloud2_iterator.hpp"
+#include "geometry_msgs/msg/pose_stamped.hpp"
+#include "geometry_msgs/msg/transform_stamped.hpp"
+#include "nav_msgs/msg/path.hpp"
+#include <tf2_ros/transform_broadcaster.h>
 using std::placeholders::_1; //* TODO why this is suggested in official tutorial
 
 // Include Eigen
@@ -87,6 +94,15 @@ class MonocularMode : public rclcpp::Node
         rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr subImgMsg_subscription_;
         rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr subTimestepMsg_subscription_;
 
+        //* SLAM output publishers
+        rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_publisher_;
+        rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr map_points_publisher_;
+        rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr tracked_points_publisher_;
+        rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr trajectory_publisher_;
+        rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr tracking_state_publisher_;
+        std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
+        nav_msgs::msg::Path trajectory_msg_; // Accumulated trajectory
+
         //* ORB_SLAM3 related variables
         ORB_SLAM3::System* pAgent; // pointer to a ORB SLAM3 object
         ORB_SLAM3::System::eSensor sensorType;
@@ -99,8 +115,11 @@ class MonocularMode : public rclcpp::Node
         void Img_callback(const sensor_msgs::msg::Image& msg); // Callback to process RGB image and semantic matrix sent by Python node
         
         //* Helper functions
-        // ORB_SLAM3::eigenMatXf convertToEigenMat(const std_msgs::msg::Float32MultiArray& msg); // Helper method, converts semantic matrix eigenMatXf, a Eigen 4x4 float matrix
         void initializeVSLAM(std::string& configString); //* Method to bind an initialized VSLAM framework to this node
+        void publishCameraPose(const Sophus::SE3f& Tcw, const rclcpp::Time& stamp); // Publish pose + TF
+        void publishMapPoints(const std::vector<ORB_SLAM3::MapPoint*>& mapPoints, const rclcpp::Time& stamp, rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr& publisher); // Publish point cloud
+        void publishTrajectory(const rclcpp::Time& stamp); // Publish keyframe path
+        void publishTrackingState(); // Publish tracking state integer
 
 
 };

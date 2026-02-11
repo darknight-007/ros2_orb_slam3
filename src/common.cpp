@@ -82,6 +82,16 @@ MonocularMode::MonocularMode() :Node("mono_node_cpp")
     //* subscribe to receive the timestep
     subTimestepMsg_subscription_= this->create_subscription<std_msgs::msg::Float64>(subTimestepMsgName, 1, std::bind(&MonocularMode::Timestep_callback, this, _1));
 
+    //* SLAM output publishers
+    pose_publisher_ = this->create_publisher<geometry_msgs::msg::PoseStamped>("/orb_slam3/camera_pose", 10);
+    map_points_publisher_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/orb_slam3/map_points", 10);
+    tracked_points_publisher_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/orb_slam3/tracked_points", 10);
+    trajectory_publisher_ = this->create_publisher<nav_msgs::msg::Path>("/orb_slam3/trajectory", 10);
+    tracking_state_publisher_ = this->create_publisher<std_msgs::msg::Int32>("/orb_slam3/tracking_state", 10);
+    tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
+    trajectory_msg_.header.frame_id = "map";
+
+    RCLCPP_INFO(this->get_logger(), "SLAM publishers initialized on /orb_slam3/*");
     
     RCLCPP_INFO(this->get_logger(), "Waiting to finish handshake ......");
     
@@ -182,10 +192,163 @@ void MonocularMode::Img_callback(const sensor_msgs::msg::Image& msg)
     //* Perform all ORB-SLAM3 operations in Monocular mode
     //! Pose with respect to the camera coordinate frame not the world coordinate frame
     Sophus::SE3f Tcw = pAgent->TrackMonocular(cv_ptr->image, timeStep); 
-    
-    //* An example of what can be done after the pose w.r.t camera coordinate frame is computed by ORB SLAM3
-    //Sophus::SE3f Twc = Tcw.inverse(); //* Pose with respect to global image coordinate, reserved for future use
 
+    // Guard: only publish if SLAM system is initialized
+    if (!pAgent) return;
+    
+    //* Publish SLAM outputs
+    rclcpp::Time stamp = this->get_clock()->now();
+    
+    // Publish tracking state
+    publishTrackingState();
+    
+    // Only publish pose and map data if tracking is OK
+    int trackingState = pAgent->GetTrackingState();
+    if (trackingState == 2) // OK state
+    {
+        // Publish camera pose and TF
+        publishCameraPose(Tcw, stamp);
+        
+        // Publish tracked map points (current frame)
+        std::vector<ORB_SLAM3::MapPoint*> trackedPoints = pAgent->GetTrackedMapPoints();
+        publishMapPoints(trackedPoints, stamp, tracked_points_publisher_);
+        
+        // Publish all map points (full map, throttled to reduce bandwidth)
+        static int map_publish_counter = 0;
+        if (++map_publish_counter % 5 == 0) // Every 5th frame
+        {
+            std::vector<ORB_SLAM3::MapPoint*> allPoints = pAgent->GetAllMapPoints();
+            publishMapPoints(allPoints, stamp, map_points_publisher_);
+            
+            // Publish keyframe trajectory
+            publishTrajectory(stamp);
+        }
+    }
 }
 
+//* Publish camera pose as PoseStamped and broadcast TF
+void MonocularMode::publishCameraPose(const Sophus::SE3f& Tcw, const rclcpp::Time& stamp)
+{
+    // Convert Tcw (camera-to-world) to Twc (world-to-camera) for pose in world frame
+    Sophus::SE3f Twc = Tcw.inverse();
+    Eigen::Vector3f translation = Twc.translation();
+    Eigen::Quaternionf quaternion = Twc.unit_quaternion();
+
+    // Publish PoseStamped
+    geometry_msgs::msg::PoseStamped pose_msg;
+    pose_msg.header.stamp = stamp;
+    pose_msg.header.frame_id = "map";
+    pose_msg.pose.position.x = translation.x();
+    pose_msg.pose.position.y = translation.y();
+    pose_msg.pose.position.z = translation.z();
+    pose_msg.pose.orientation.x = quaternion.x();
+    pose_msg.pose.orientation.y = quaternion.y();
+    pose_msg.pose.orientation.z = quaternion.z();
+    pose_msg.pose.orientation.w = quaternion.w();
+    pose_publisher_->publish(pose_msg);
+
+    // Broadcast TF: map -> camera_link
+    geometry_msgs::msg::TransformStamped tf_msg;
+    tf_msg.header.stamp = stamp;
+    tf_msg.header.frame_id = "map";
+    tf_msg.child_frame_id = "orb_slam3_camera";
+    tf_msg.transform.translation.x = translation.x();
+    tf_msg.transform.translation.y = translation.y();
+    tf_msg.transform.translation.z = translation.z();
+    tf_msg.transform.rotation.x = quaternion.x();
+    tf_msg.transform.rotation.y = quaternion.y();
+    tf_msg.transform.rotation.z = quaternion.z();
+    tf_msg.transform.rotation.w = quaternion.w();
+    tf_broadcaster_->sendTransform(tf_msg);
+}
+
+//* Publish map points as PointCloud2
+void MonocularMode::publishMapPoints(
+    const std::vector<ORB_SLAM3::MapPoint*>& mapPoints,
+    const rclcpp::Time& stamp,
+    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr& publisher)
+{
+    if (mapPoints.empty()) return;
+
+    // Count valid (non-null, non-bad) points
+    std::vector<Eigen::Vector3f> validPoints;
+    validPoints.reserve(mapPoints.size());
+    for (auto* mp : mapPoints)
+    {
+        if (mp && !mp->isBad())
+        {
+            validPoints.push_back(mp->GetWorldPos());
+        }
+    }
+
+    if (validPoints.empty()) return;
+
+    // Build PointCloud2 message
+    sensor_msgs::msg::PointCloud2 cloud_msg;
+    cloud_msg.header.stamp = stamp;
+    cloud_msg.header.frame_id = "map";
+    cloud_msg.height = 1;
+    cloud_msg.width = validPoints.size();
+    cloud_msg.is_dense = true;
+    cloud_msg.is_bigendian = false;
+
+    // Define fields: x, y, z as float32
+    sensor_msgs::PointCloud2Modifier modifier(cloud_msg);
+    modifier.setPointCloud2FieldsByString(1, "xyz");
+    modifier.resize(validPoints.size());
+
+    // Fill the data
+    sensor_msgs::PointCloud2Iterator<float> iter_x(cloud_msg, "x");
+    sensor_msgs::PointCloud2Iterator<float> iter_y(cloud_msg, "y");
+    sensor_msgs::PointCloud2Iterator<float> iter_z(cloud_msg, "z");
+
+    for (const auto& pt : validPoints)
+    {
+        *iter_x = pt.x();
+        *iter_y = pt.y();
+        *iter_z = pt.z();
+        ++iter_x; ++iter_y; ++iter_z;
+    }
+
+    publisher->publish(cloud_msg);
+}
+
+//* Publish keyframe trajectory as Path
+void MonocularMode::publishTrajectory(const rclcpp::Time& stamp)
+{
+    std::vector<Sophus::SE3f> keyframePoses = pAgent->GetAllKeyframePoses();
+    
+    nav_msgs::msg::Path path_msg;
+    path_msg.header.stamp = stamp;
+    path_msg.header.frame_id = "map";
+
+    for (const auto& kfPose : keyframePoses)
+    {
+        // kfPose is Twc (world-to-camera) from GetAllKeyframePoses
+        Eigen::Vector3f t = kfPose.translation();
+        Eigen::Quaternionf q = kfPose.unit_quaternion();
+
+        geometry_msgs::msg::PoseStamped ps;
+        ps.header.stamp = stamp;
+        ps.header.frame_id = "map";
+        ps.pose.position.x = t.x();
+        ps.pose.position.y = t.y();
+        ps.pose.position.z = t.z();
+        ps.pose.orientation.x = q.x();
+        ps.pose.orientation.y = q.y();
+        ps.pose.orientation.z = q.z();
+        ps.pose.orientation.w = q.w();
+        path_msg.poses.push_back(ps);
+    }
+
+    trajectory_publisher_->publish(path_msg);
+}
+
+//* Publish tracking state as Int32
+void MonocularMode::publishTrackingState()
+{
+    auto state_msg = std_msgs::msg::Int32();
+    state_msg.data = pAgent->GetTrackingState();
+    tracking_state_publisher_->publish(state_msg);
+}
 

@@ -1,13 +1,24 @@
 ![License](https://img.shields.io/badge/License-GPLv3-blue.svg)
 ![Build Status](https://img.shields.io/badge/Build-Passing-success.svg)
 ![ROS2](https://img.shields.io/badge/ROS2-Jazzy-blue.svg)
-![Version](https://img.shields.io/badge/Version-1.6.0-blue.svg)
+![Version](https://img.shields.io/badge/Version-2.0.0-blue.svg)
 
-# ROS2 ORB-SLAM3 — Monocular Visual SLAM for Drone Applications
+# ROS2 ORB-SLAM3 — Adaptive Visual SLAM for Drone Mapping
 
-A ROS2 package wrapping [ORB-SLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3) V1.0 as a shared library with native ROS2 integration. Used in the **SES 598 Space Robotics and AI** course ([terrain_mapping_drone_control](../terrain_mapping_drone_control/)) for monocular visual SLAM on a simulated PX4 drone.
+A ROS2 package wrapping [ORB-SLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3) V1.0 as a shared library with native ROS2 integration. Publishes camera poses, point clouds, and keyframe trajectories as standard ROS2 messages for downstream mapping and navigation.
 
-Forked from [Mechazo11/ros2_orb_slam3](https://github.com/Mechazo11/ros2_orb_slam3) and adapted for ROS2 Jazzy / Ubuntu 24.04 (Noble) with configurable camera topics.
+Developed as part of the **SES 598 Space Robotics and AI** course at Arizona State University, alongside the [terrain_mapping_drone_control](../terrain_mapping_drone_control/) package for ORB-SLAM-based adaptive terrain mapping on a simulated PX4 drone.
+
+Forked from [Mechazo11/ros2_orb_slam3](https://github.com/Mechazo11/ros2_orb_slam3) and substantially extended for ROS2 Jazzy / Ubuntu 24.04 (Noble).
+
+## Changes from Upstream
+
+- **ROS2 Jazzy / Ubuntu Noble** — ported includes, build system, and dependencies
+- **Thirdparty libraries built from source** — DBoW2 and g2o are compiled via `add_subdirectory()` during `colcon build` (adopted from upstream jazzy branch). No more pre-built `.so` files; always matches system OpenCV.
+- **SLAM output publishers** — camera pose (`PoseStamped`), point clouds (`PointCloud2`), keyframe trajectory (`Path`), tracking state, and TF broadcast
+- **Configurable camera topic** — the Python driver accepts an `image_topic` parameter (defaults to `/drone_camera`)
+- **Drone camera calibration** — `DroneCamera.yaml` config with intrinsics from the PX4 Gazebo simulation camera
+- **OpenCV 4.6 minimum** — explicit requirement for Noble
 
 ## Architecture
 
@@ -15,22 +26,32 @@ The package uses a two-node design:
 
 | Node | Language | Role |
 |---|---|---|
-| `mono_node_cpp` | C++ | Runs ORB-SLAM3 monocular tracking, Pangolin viewer |
-| `mono_driver_node.py` | Python | Subscribes to camera topic, performs handshake, relays images and timestamps to the C++ node |
+| `mono_node_cpp` | C++ | Runs ORB-SLAM3 monocular tracking, publishes SLAM outputs, Pangolin viewer |
+| `mono_driver_node.py` | Python | Subscribes to camera topic, performs handshake, relays images and timestamps |
 
 **Data flow:**
 
 ```
-/drone_camera ──> mono_driver_node.py ──> /mono_py_driver/img_msg ──> mono_node_cpp (ORB-SLAM3)
-                                      └─> /mono_py_driver/timestep_msg ─┘
+/drone_camera ──> mono_driver_node.py ──> mono_node_cpp (ORB-SLAM3)
+                                              │
+                                              ├──> /orb_slam3/camera_pose      (PoseStamped)
+                                              ├──> /orb_slam3/map_points       (PointCloud2)
+                                              ├──> /orb_slam3/tracked_points   (PointCloud2)
+                                              ├──> /orb_slam3/trajectory       (Path)
+                                              ├──> /orb_slam3/tracking_state   (Int32)
+                                              └──> TF: map → orb_slam3_camera
 ```
 
-## Changes from Upstream
+## Published Topics
 
-- **ROS2 Jazzy / Ubuntu Noble support** — rebuilt Thirdparty libraries (DBoW2, g2o) against system OpenCV 4.6
-- **Configurable camera topic** — the Python driver accepts an `image_topic` parameter (defaults to `/drone_camera`)
-- **Drone camera calibration** — added `DroneCamera.yaml` config with intrinsics from the PX4 Gazebo simulation camera
-- Upstream was hardcoded for ZED2 camera on ROS2 Humble / Ubuntu 22.04
+| Topic | Type | Rate | Description |
+|---|---|---|---|
+| `/orb_slam3/camera_pose` | `geometry_msgs/PoseStamped` | Every frame | Camera pose in world frame (Twc) |
+| `/orb_slam3/tracked_points` | `sensor_msgs/PointCloud2` | Every frame | Map points visible in the current frame |
+| `/orb_slam3/map_points` | `sensor_msgs/PointCloud2` | Every 5th frame | Full accumulated map point cloud |
+| `/orb_slam3/trajectory` | `nav_msgs/Path` | Every 5th frame | All keyframe poses as a path |
+| `/orb_slam3/tracking_state` | `std_msgs/Int32` | Every frame | 0=not ready, 1=not init, 2=OK, 3=recently lost, 4=lost |
+| TF: `map` -> `orb_slam3_camera` | `tf2` | Every frame | Camera transform for rviz/tf tree |
 
 ## Prerequisites
 
@@ -73,16 +94,6 @@ Ubuntu 24.04 ships OpenCV 4.6. Verify:
 python3 -c "import cv2; print(cv2.__version__)"
 ```
 
-> **Note:** If you see errors about `libopencv_core.so.4.5d` at runtime, the Thirdparty DBoW2 library was built against a different OpenCV version. Rebuild it:
->
-> ```bash
-> cd ~/ros2_ws/src/ros2_orb_slam3/orb_slam3/Thirdparty/DBoW2
-> rm -rf build lib/libDBoW2.so
-> mkdir -p build && cd build
-> cmake .. -DCMAKE_BUILD_TYPE=Release
-> make -j$(nproc)
-> ```
-
 ## Installation
 
 ```bash
@@ -93,6 +104,8 @@ rosdep install -r --from-paths src --ignore-src -y --rosdistro jazzy
 source /opt/ros/jazzy/setup.bash
 colcon build --packages-select ros2_orb_slam3
 ```
+
+DBoW2 and g2o are built automatically from source — no manual Thirdparty compilation needed.
 
 ## Usage
 
@@ -114,7 +127,21 @@ source ~/ros2_ws/install/setup.bash
 ros2 run ros2_orb_slam3 mono_driver_node.py --ros-args -p settings_name:=DroneCamera
 ```
 
-The driver performs a handshake with the C++ node, then begins relaying images from `/drone_camera`. The Pangolin viewer window should open showing the ORB feature extraction and map.
+### Visualizing in rviz2
+
+Once both nodes are running and tracking:
+
+```bash
+rviz2
+```
+
+Add the following displays (set Fixed Frame to `map`):
+
+- **PointCloud2** on `/orb_slam3/map_points` — full 3D map
+- **PointCloud2** on `/orb_slam3/tracked_points` — current frame features
+- **PoseStamped** on `/orb_slam3/camera_pose` — live camera pose
+- **Path** on `/orb_slam3/trajectory` — keyframe trajectory
+- **TF** — shows `map` -> `orb_slam3_camera` transform
 
 ### Using a Different Camera Topic
 
@@ -158,7 +185,7 @@ ros2 run ros2_orb_slam3 mono_driver_node.py --ros-args -p settings_name:=EuRoC -
 
 | Parameter | Default | Description |
 |---|---|---|
-| `settings_name` | `ZED2` | Name of the YAML config file in `orb_slam3/config/Monocular/` (without `.yaml`) |
+| `settings_name` | `ZED2` | Name of the YAML config in `orb_slam3/config/Monocular/` (without `.yaml`) |
 | `image_topic` | `/drone_camera` | ROS2 image topic to subscribe to |
 
 ## Camera Configuration
@@ -179,10 +206,11 @@ To create a config for a new camera, copy an existing YAML and update the intrin
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `libopencv_core.so.4.5d: cannot open shared object` | DBoW2 was built against a different OpenCV | Rebuild DBoW2 (see Prerequisites) |
-| `Waiting to finish handshake ......` hangs | Python driver not running or topic mismatch | Start the Python driver in a second terminal |
-| Pangolin window doesn't open | Display not set or Pangolin not installed | Check `echo $DISPLAY`, reinstall Pangolin |
-| ORB-SLAM3 loses tracking immediately | Camera intrinsics mismatch | Verify `settings_name` YAML matches your camera |
+| `libopencv_core.so.4.5d` error | Old pre-built DBoW2 binary | Clean rebuild: `rm -rf build/ install/` then `colcon build` |
+| `Waiting to finish handshake ......` | Python driver not running | Start `mono_driver_node.py` in a second terminal |
+| Pangolin window doesn't open | Display not set | Check `echo $DISPLAY`, reinstall Pangolin |
+| ORB-SLAM3 loses tracking | Camera intrinsics mismatch | Verify `settings_name` YAML matches your camera |
+| No data on `/orb_slam3/*` topics | Tracking state != OK | Check `/orb_slam3/tracking_state` — data publishes only when state is 2 (OK) |
 
 ## Credits
 
@@ -191,6 +219,7 @@ This package is based on the work of:
 - **Azmyin Md. Kamal** — [Mechazo11/ros2_orb_slam3](https://github.com/Mechazo11/ros2_orb_slam3) — original ROS2 wrapper
 - **ORB-SLAM3** — Campos et al., University of Zaragoza — [UZ-SLAMLab/ORB_SLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3)
 - **thien94** — [orb_slam3_ros](https://github.com/thien94/orb_slam3_ros) — ROS1 port that influenced the project structure
+- Build system improvements adapted from upstream [jazzy branch](https://github.com/Mechazo11/ros2_orb_slam3/tree/jazzy) (PR [#45](https://github.com/Mechazo11/ros2_orb_slam3/pull/45))
 
 ## Citations
 
