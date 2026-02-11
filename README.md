@@ -1,101 +1,58 @@
 ![License](https://img.shields.io/badge/License-GPLv3-blue.svg)
 ![Build Status](https://img.shields.io/badge/Build-Passing-success.svg)
-![ROS2](https://img.shields.io/badge/ROS2-Humble-blue.svg)
-![Version](https://img.shields.io/badge/Version-1.5.0-blue.svg)
+![ROS2](https://img.shields.io/badge/ROS2-Jazzy-blue.svg)
+![Version](https://img.shields.io/badge/Version-1.6.0-blue.svg)
 
-# ROS2 ORB SLAM3 V1.0 package 
+# ROS2 ORB-SLAM3 — Monocular Visual SLAM for Drone Applications
 
-A ROS2 package for ORB SLAM3 V1.0. Focus is on native integration with ROS2 ecosystem. My goal is to provide a "bare-bones" starting point for developers in using ORB SLAM3 framework in their ROS 2 projects. Hence, this package will not use more advanced features of ROS 2 such as rviz, tf and launch files. This project structure is heavily influenced by the excellent ROS1 port of ORB SLAM3 by [thien94](https://github.com/thien94/orb_slam3_ros/tree/master). 
+A ROS2 package wrapping [ORB-SLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3) V1.0 as a shared library with native ROS2 integration. Used in the **SES 598 Space Robotics and AI** course ([terrain_mapping_drone_control](../terrain_mapping_drone_control/)) for monocular visual SLAM on a simulated PX4 drone.
 
-If you find this work useful please consider citing the original ORB-SLAM3 paper and my recent paper that uses this package in solving short-term relocalization (kidnapped robot problem) as shown below
+Forked from [Mechazo11/ros2_orb_slam3](https://github.com/Mechazo11/ros2_orb_slam3) and adapted for ROS2 Jazzy / Ubuntu 24.04 (Noble) with configurable camera topics.
 
-```bibtex
-@INPROCEEDINGS{kamal2024solving,
-  author={Kamal, Azmyin Md. and Dadson, Nenyi Kweku Nkensen and Gegg, Donovan and Barbalata, Corina},
-  booktitle={2024 IEEE International Conference on Advanced Intelligent Mechatronics (AIM)}, 
-  title={Solving Short-Term Relocalization Problems In Monocular Keyframe Visual SLAM Using Spatial And Semantic Data}, 
-  year={2024},
-  volume={},
-  number={},
-  pages={615-622},
-  keywords={Visualization;Simultaneous localization and mapping;Accuracy;Three-dimensional displays;Semantics;Robot vision systems;Pipelines},
-  doi={10.1109/AIM55361.2024.10637187}}
+## Architecture
+
+The package uses a two-node design:
+
+| Node | Language | Role |
+|---|---|---|
+| `mono_node_cpp` | C++ | Runs ORB-SLAM3 monocular tracking, Pangolin viewer |
+| `mono_driver_node.py` | Python | Subscribes to camera topic, performs handshake, relays images and timestamps to the C++ node |
+
+**Data flow:**
+
+```
+/drone_camera ──> mono_driver_node.py ──> /mono_py_driver/img_msg ──> mono_node_cpp (ORB-SLAM3)
+                                      └─> /mono_py_driver/timestep_msg ─┘
 ```
 
-```bibtex
-@article{ORBSLAM3_TRO,
-  title={{ORB-SLAM3}: An Accurate Open-Source Library for Visual, Visual-Inertial 
-           and Multi-Map {SLAM}},
-  author={Campos, Carlos AND Elvira, Richard AND G\´omez, Juan J. AND Montiel, 
-          Jos\'e M. M. AND Tard\'os, Juan D.},
-  journal={IEEE Transactions on Robotics}, 
-  volume={37},
-  number={6},
-  pages={1874-1890},
-  year={2021}
- }
-```
+## Changes from Upstream
 
-## 0. Preamble
+- **ROS2 Jazzy / Ubuntu Noble support** — rebuilt Thirdparty libraries (DBoW2, g2o) against system OpenCV 4.6
+- **Configurable camera topic** — the Python driver accepts an `image_topic` parameter (defaults to `/drone_camera`)
+- **Drone camera calibration** — added `DroneCamera.yaml` config with intrinsics from the PX4 Gazebo simulation camera
+- Upstream was hardcoded for ZED2 camera on ROS2 Humble / Ubuntu 22.04
 
-* This package builds [ORB-SLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3) V1.0 as a shared internal library. Comes included with a number of Thirdparty libraries [DBoW2, g2o, Sophus]
-* g2o used is an older version and is incompatible with the latest release found here [g2o github page](https://github.com/RainerKuemmerle/g2o).
-* This package differs from other ROS1 wrappers, thien94`s ROS 1 port and ROS 2 wrappers in GitHub by supprting/adopting the following
-  * A separate python node to send data to the ORB-SLAM3 cpp node. This is purely a design choice.
-  * At least C++17 and Cmake>=3.8
-  * Eigen 3.3.0, OpenCV 4.2, latest release of Pangolin
-* Comes with a small test image sequence from EuRoC MAV dataset (MH05) to quickly test installation
-* For newcomers in ROS2 ecosystem, this package serves as an example of building a shared cpp library and also a package with both cpp and python nodes.
-* May not build or work correctly in **resource constrainted hardwares** such as Raspberry Pi 4, Jetson Nano
-
-## Testing platforms
-
-1. Intel i5-9300H, x86_64 bit architecture , Ubuntu 22.04 LTS (Jammy Jellyfish) and RO2 Humble Hawksbill (LTS)
-2. AMD Ryzen 5600X, x86_64 bit architecture, Ubuntu 22.04 LTS (Jammy Jellyfish) and RO2 Humble Hawksbill (LTS)
-
-## 1. Prerequisitis
-
-Start with installing the following prerequisits
+## Prerequisites
 
 ### Eigen3
 
-```
+```bash
 sudo apt install libeigen3-dev
 ```
 
-### Pangolin and configuring dynamic library path
+### Pangolin
 
-We install Pangolin system wide and configure the dynamic library path so the necessary .so from Pangolin can be found by ros2 package during run time. More info here https://robotics.stackexchange.com/questions/105973/ros2-port-of-orb-slam3-can-copy-libdow2-so-and-libg2o-so-using-cmake-but-gettin
-
-#### Install Pangolin
-
-```
+```bash
 cd ~/Documents
 git clone https://github.com/stevenlovegrove/Pangolin
 cd Pangolin
-./scripts/install_prerequisites.sh --dry-run recommended # Check what recommended softwares needs to be installed
-./scripts/install_prerequisites.sh recommended # Install recommended dependencies
+./scripts/install_prerequisites.sh recommended
 cmake -B build
-cmake --build build -j4
+cmake --build build -j$(nproc)
 sudo cmake --install build
 ```
 
-#### Configure dynamic library
-
-Check if ```/usr/lib/local``` is in the LIBRARY PATH
-
-```bash
-echo $LD_LIBRARY_PATH
-```
-
-If not, then perform the following 
-
-```bash
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib/local
-sudo ldconfig
-```
-
-Then open the ```.bashrc``` file in ```\home``` directory and add these lines at the very end
+Then ensure `/usr/local/lib` is in your library path. Add to `~/.bashrc`:
 
 ```bash
 if [[ ":$LD_LIBRARY_PATH:" != *":/usr/local/lib:"* ]]; then
@@ -103,70 +60,160 @@ if [[ ":$LD_LIBRARY_PATH:" != *":/usr/local/lib:"* ]]; then
 fi
 ```
 
-Finally, source ```.bashrc``` file 
-
 ```bash
 source ~/.bashrc
+sudo ldconfig
 ```
- 
+
 ### OpenCV
-Ubuntu 22.04 by default comes with >OpenCV 4.2. Check to make sure you have at least 4.2 installed. Run the following in a terminal
+
+Ubuntu 24.04 ships OpenCV 4.6. Verify:
 
 ```bash
-python3 -c "import cv2; print(cv2.__version__)" 
+python3 -c "import cv2; print(cv2.__version__)"
 ```
 
-## 2. Installation
+> **Note:** If you see errors about `libopencv_core.so.4.5d` at runtime, the Thirdparty DBoW2 library was built against a different OpenCV version. Rebuild it:
+>
+> ```bash
+> cd ~/ros2_ws/src/ros2_orb_slam3/orb_slam3/Thirdparty/DBoW2
+> rm -rf build lib/libDBoW2.so
+> mkdir -p build && cd build
+> cmake .. -DCMAKE_BUILD_TYPE=Release
+> make -j$(nproc)
+> ```
 
-Follow the steps below to create the ```ros2_test``` workspace, install dependencies and build the package. Note, the workspace must be named ```ros2_test``` due to a HARDCODED path in the python node. I leave it to the developers to change this behavior as they see fit.
+## Installation
 
 ```bash
-cd ~
-mkdir -p ~/ros2_test/src
-cd ~/ros2_test/src
-git clone https://github.com/Mechazo11/ros2_orb_slam3.git
-cd .. # make sure you are in ~/ros2_ws root directory
-rosdep install -r --from-paths src --ignore-src -y --rosdistro humble
-source /opt/ros/humble/setup.bash
-colcon build --symlink-install
+cd ~/ros2_ws/src
+git clone https://github.com/darknight-007/ros2_orb_slam3.git
+cd ~/ros2_ws
+rosdep install -r --from-paths src --ignore-src -y --rosdistro jazzy
+source /opt/ros/jazzy/setup.bash
+colcon build --packages-select ros2_orb_slam3
 ```
 
-## 3. Monocular Example:
+## Usage
 
-Run the builtin example to verify the package is working correctly
-In one terminal [cpp node]
+### Running with the Drone Camera
+
+You need **two terminals**. Make sure the simulation (PX4 + Gazebo) is running and publishing `/drone_camera`.
+
+**Terminal 1 — C++ SLAM node:**
 
 ```bash
-cd ~/ros2_ws/
-source ./install/setup.bash
+source ~/ros2_ws/install/setup.bash
 ros2 run ros2_orb_slam3 mono_node_cpp --ros-args -p node_name_arg:=mono_slam_cpp
 ```
 
-In another terminal [python node]
+**Terminal 2 — Python driver node:**
 
 ```bash
-cd ~/ros2_ws
-source ./install/setup.bash
+source ~/ros2_ws/install/setup.bash
+ros2 run ros2_orb_slam3 mono_driver_node.py --ros-args -p settings_name:=DroneCamera
+```
+
+The driver performs a handshake with the C++ node, then begins relaying images from `/drone_camera`. The Pangolin viewer window should open showing the ORB feature extraction and map.
+
+### Using a Different Camera Topic
+
+Override the `image_topic` parameter:
+
+```bash
+ros2 run ros2_orb_slam3 mono_driver_node.py --ros-args \
+  -p settings_name:=DroneCamera \
+  -p image_topic:=/some_other_topic
+```
+
+### Running the Built-in EuRoC Test
+
+To verify the installation with the included EuRoC MH05 sample:
+
+**Terminal 1:**
+
+```bash
+source ~/ros2_ws/install/setup.bash
+ros2 run ros2_orb_slam3 mono_node_cpp --ros-args -p node_name_arg:=mono_slam_cpp
+```
+
+**Terminal 2:**
+
+```bash
+source ~/ros2_ws/install/setup.bash
 ros2 run ros2_orb_slam3 mono_driver_node.py --ros-args -p settings_name:=EuRoC -p image_seq:=sample_euroc_MH05
 ```
 
-Both nodes would perform a handshake and the VSLAM framework would then work as shown in the following video clip
+## Parameters
 
+### `mono_node_cpp` (C++)
 
-https://github.com/Mechazo11/ros2_orb_slam3/assets/44814419/af9eaa79-da4b-4405-a4d7-e09242ab9660
+| Parameter | Default | Description |
+|---|---|---|
+| `node_name_arg` | `not_given` | Name identifier for the SLAM node |
+| `voc_file_arg` | (auto) | Path to ORB vocabulary file. Auto-resolved if not set |
+| `settings_file_path_arg` | (auto) | Path to settings directory. Auto-resolved if not set |
 
+### `mono_driver_node.py` (Python)
 
-Thank you for taking the time in checking this project out. I hope it helps you out. If you find this package useful in your project consider citing the original ORB SLAM3 paper and one of my recent papers shown below
+| Parameter | Default | Description |
+|---|---|---|
+| `settings_name` | `ZED2` | Name of the YAML config file in `orb_slam3/config/Monocular/` (without `.yaml`) |
+| `image_topic` | `/drone_camera` | ROS2 image topic to subscribe to |
 
-## TODO next version:
+## Camera Configuration
 
-- [ ] Stereo mode example
-- [ ] RGBD mode example
+Camera configs live in `orb_slam3/config/Monocular/`. The `DroneCamera.yaml` was generated from the `/drone_camera_info` topic:
 
-## TODO done
+| Parameter | Value |
+|---|---|
+| Resolution | 1280 x 720 |
+| fx, fy | 410.94, 410.94 |
+| cx, cy | 640.0, 360.0 |
+| Distortion | None (rectified) |
+| Color order | RGB |
 
-- [ ] Release `version 0.5`
-- [x] Finish working example and upload code
-- [x] Detailed installation and usage instructions
-- [x] Show short video example for monocular mode
-- [x] Update bibtex to use my IEEE AIM 2024 paper from google scholar
+To create a config for a new camera, copy an existing YAML and update the intrinsics from your camera's `CameraInfo` topic.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `libopencv_core.so.4.5d: cannot open shared object` | DBoW2 was built against a different OpenCV | Rebuild DBoW2 (see Prerequisites) |
+| `Waiting to finish handshake ......` hangs | Python driver not running or topic mismatch | Start the Python driver in a second terminal |
+| Pangolin window doesn't open | Display not set or Pangolin not installed | Check `echo $DISPLAY`, reinstall Pangolin |
+| ORB-SLAM3 loses tracking immediately | Camera intrinsics mismatch | Verify `settings_name` YAML matches your camera |
+
+## Credits
+
+This package is based on the work of:
+
+- **Azmyin Md. Kamal** — [Mechazo11/ros2_orb_slam3](https://github.com/Mechazo11/ros2_orb_slam3) — original ROS2 wrapper
+- **ORB-SLAM3** — Campos et al., University of Zaragoza — [UZ-SLAMLab/ORB_SLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3)
+- **thien94** — [orb_slam3_ros](https://github.com/thien94/orb_slam3_ros) — ROS1 port that influenced the project structure
+
+## Citations
+
+```bibtex
+@INPROCEEDINGS{kamal2024solving,
+  author={Kamal, Azmyin Md. and Dadson, Nenyi Kweku Nkensen and Gegg, Donovan and Barbalata, Corina},
+  booktitle={2024 IEEE International Conference on Advanced Intelligent Mechatronics (AIM)}, 
+  title={Solving Short-Term Relocalization Problems In Monocular Keyframe Visual SLAM Using Spatial And Semantic Data}, 
+  year={2024},
+  pages={615-622},
+  doi={10.1109/AIM55361.2024.10637187}}
+```
+
+```bibtex
+@article{ORBSLAM3_TRO,
+  title={{ORB-SLAM3}: An Accurate Open-Source Library for Visual, Visual-Inertial 
+           and Multi-Map {SLAM}},
+  author={Campos, Carlos AND Elvira, Richard AND G\'omez, Juan J. AND Montiel, 
+          Jos\'e M. M. AND Tard\'os, Juan D.},
+  journal={IEEE Transactions on Robotics}, 
+  volume={37},
+  number={6},
+  pages={1874-1890},
+  year={2021}
+}
+```

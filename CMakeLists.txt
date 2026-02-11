@@ -157,21 +157,13 @@ add_executable(mono_node_cpp
   src/common.cpp
 )
 
-add_executable(stereo_node_cpp
-  src/stereo_example.cpp
-  src/common.cpp
-)
 
 ament_target_dependencies(mono_node_cpp
   PUBLIC ${THIS_PACKAGE_INCLUDE_DEPENDS}
 )
 
-ament_target_dependencies(stereo_node_cpp
-  PUBLIC ${THIS_PACKAGE_INCLUDE_DEPENDS}
-)
 
 target_link_libraries(mono_node_cpp PUBLIC orb_slam3_lib)
-target_link_libraries(stereo_node_cpp PUBLIC orb_slam3_lib)
 
 
 # Install all the header files in package/package/include
@@ -180,7 +172,7 @@ install (DIRECTORY include/
 )
 
 # Install our node and library
-install(TARGETS mono_node_cpp stereo_node_cpp orb_slam3_lib
+install(TARGETS mono_node_cpp orb_slam3_lib
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME}
@@ -204,7 +196,6 @@ ament_python_install_package(${PROJECT_NAME}) # Install the modules in ros2_orb_
 # Install Python executibles
 install(PROGRAMS
   scripts/mono_driver_node.py
-  scripts/stereo_driver_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
